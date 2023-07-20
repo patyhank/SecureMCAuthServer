@@ -204,8 +204,19 @@ func newForm(data *FormData, form *tview.Form, list *tview.List) {
 		server.EncStruct(passphrase, account)
 		updateList(form, list)
 	})
-	form.AddButton("建立新的", func() {
+	form.AddButton("新建", func() {
 		newForm(&FormData{}, form, list)
+	})
+	hidden := false
+	form.AddButton("密碼顯示", func() {
+		hidden = !hidden
+		if hidden {
+			form.GetFormItem(2).(*tview.InputField).SetMaskCharacter(0)
+			form.GetButton(3).SetLabel("密碼隱藏")
+		} else {
+			form.GetFormItem(2).(*tview.InputField).SetMaskCharacter('*')
+			form.GetButton(3).SetLabel("密碼顯示")
+		}
 	})
 
 }

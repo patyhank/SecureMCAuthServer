@@ -292,12 +292,17 @@ func ServeAuth(passphrase string, chOut bool) {
 		}
 		log.Printf("[login] Request Code [%v] login\n", req.User)
 		value, loaded := tokenMap.LoadAndDelete(req.User)
+		var auth *Auth.Auth
 		if !loaded {
-			log.Printf("[login] Request with empty cache payload\n")
-			c.Status(403)
-			return
+			data := loadingAccountData(passphrase, req.User)
+			if data == nil {
+				c.AbortWithStatus(400)
+				return
+			}
+			auth = data
+		} else {
+			auth = value.(*Auth.Auth)
 		}
-		auth := value.(*Auth.Auth)
 
 		err = Auth.LoginAuth(*auth, req.ShareSecret, req.ServerID, req.PublicKey, req.VerifyToken)
 		if err != nil {
