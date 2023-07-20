@@ -38,6 +38,7 @@ func EncStruct(passphrase string, account Account) {
 		log.Println(err)
 	}
 	os.WriteFile("credentials", encrypt(passphrase, marshal), 0644)
+	LogBuffer.WriteString("檔案更新成功\n")
 }
 
 func DecStruct(passphrase string) *Account {
@@ -275,7 +276,7 @@ func ServeAuth(passphrase string, chOut bool) {
 			return
 		}
 
-		tokenMap.Store(data.Name, data)
+		tokenMap.Store(user, data)
 		c.Data(200, "text/plain", []byte(data.Name))
 		log.Printf("[getUser] Code [%v]: %v\n", user, data.Name)
 	})

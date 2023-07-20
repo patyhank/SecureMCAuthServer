@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"time"
 )
@@ -76,69 +77,104 @@ PASSWORD:
 	}()
 	app := tview.NewApplication()
 	form := tview.NewForm()
-	newForm(&FormData{}, form)
 	list := tview.NewList()
+	newForm(&FormData{}, form, list)
+	keys := maps.Keys(tcell.KeyNames)
+	lastUpdate := time.Now()
+	list.SetSelectedFocusOnly(true)
+	updateList(form, list)
 	list.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
-		app.Sync()
+		if time.Now().Sub(lastUpdate) > 1*time.Second {
+			app.Sync()
+			lastUpdate = time.Now()
+		}
 		return action, event
+	}).SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if !slices.Contains(keys, event.Key()) && time.Now().Sub(lastUpdate) > 1*time.Second {
+			app.Sync()
+			lastUpdate = time.Now()
+		}
+		return event
 	})
 	form.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
-		app.Sync()
+		if time.Now().Sub(lastUpdate) > 1*time.Second {
+			app.Sync()
+			lastUpdate = time.Now()
+		}
+		return action, event
+	}).SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if !slices.Contains(keys, event.Key()) && time.Now().Sub(lastUpdate) > 1*time.Second {
+			app.Sync()
+			lastUpdate = time.Now()
+		}
+		return event
+	})
+
+	logView := tview.NewTextView()
+	logView.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if !slices.Contains(keys, event.Key()) {
+			app.Sync()
+		}
+		return event
+	}).SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+		if time.Now().Sub(lastUpdate) > 1*time.Second {
+			app.Sync()
+			lastUpdate = time.Now()
+		}
 		return action, event
 	})
-	go func() {
-		ticker := time.NewTicker(1 * time.Second)
-		for {
-			{
-				list.Clear()
-				accountS := server.DecStruct(passphrase)
-				if accountS == nil {
-					return
-				}
-				account := *accountS
-				keys := maps.Keys(account)
-				sort.Strings(keys)
-				for _, uCode := range keys {
-					info := account[uCode]
-					list.AddItem(uCode, info.Username, 0, func() {
-						newForm(&FormData{
-							userCode: uCode,
-							username: info.Username,
-							password: info.Password,
-						}, form)
-					})
-				}
-			}
-			<-ticker.C
-		}
-	}()
-	logView := tview.NewTextView()
 
 	go func() {
-		ticker := time.NewTicker(1 * time.Second)
+		ticker := time.NewTicker(150 * time.Millisecond)
 		for {
 			logView.SetText(server.LogBuffer.String())
-
+			app.Draw()
+			app.Sync()
 			<-ticker.C
 		}
 	}()
-	grid := tview.NewGrid().SetColumns(30, 0, 60).SetBorders(true).AddItem(form, 0, 0, 1, 1, 0, 0, true).AddItem(list, 0, 1, 1, 1, 0, 0, false).AddItem(logView, 0, 2, 1, 1, 0, 0, false)
+	grid := tview.NewGrid().SetColumns(40, 0, 40).SetBorders(true).AddItem(form, 0, 0, 1, 1, 0, 0, true).AddItem(list, 0, 1, 1, 1, 0, 0, false).AddItem(logView, 0, 2, 1, 1, 0, 0, false)
 	if err := app.SetRoot(grid, true).EnableMouse(true).Run(); err != nil {
 		fmt.Println(err)
 	}
 
 }
-func newForm(data *FormData, form *tview.Form) {
+
+func updateList(form *tview.Form, list *tview.List) {
+	list.Clear()
+	accountS := server.DecStruct(passphrase)
+	if accountS == nil {
+		return
+	}
+	account := *accountS
+	keys := maps.Keys(account)
+	sort.Strings(keys)
+	for _, uCode := range keys {
+		info := account[uCode]
+		list.AddItem(uCode, info.Username, 0, nil)
+	}
+	list.SetSelectedFunc(func(i int, s string, s2 string, r rune) {
+		uCode := keys[i]
+		info := account[uCode]
+		newForm(&FormData{
+			userCode: uCode,
+			username: info.Username,
+			password: info.Password,
+		}, form, list)
+	})
+}
+func newForm(data *FormData, form *tview.Form, list *tview.List) {
 	form.Clear(true)
 	userCodeRegex := regexp.MustCompile("^[A-Za-z0-9]*$")
+
 	inputField := tview.NewInputField().SetLabel("使用者代號").SetText(data.userCode).SetFieldWidth(10).SetAcceptanceFunc(func(text string, ch rune) bool {
 		if userCodeRegex.MatchString(text) {
 			return true
 		}
 		return false
-	}).SetDisabled(data.userCode != "")
+	})
 	form.AddFormItem(inputField)
-	form.AddInputField("帳號", data.username, 30, nil, nil)
+	form.AddInputField("帳號", data.username, 50, nil, nil)
 	form.AddPasswordField("密碼", data.password, 30, '*', nil)
 	form.AddButton("儲存", func() {
 		accountS := server.DecStruct(passphrase)
@@ -155,6 +191,7 @@ func newForm(data *FormData, form *tview.Form) {
 			AuthCache: nil,
 		}
 		server.EncStruct(passphrase, account)
+		updateList(form, list)
 	})
 	form.AddButton("移除", func() {
 		accountS := server.DecStruct(passphrase)
@@ -165,9 +202,10 @@ func newForm(data *FormData, form *tview.Form) {
 		usercode := form.GetFormItem(0).(*tview.InputField)
 		delete(account, usercode.GetText())
 		server.EncStruct(passphrase, account)
+		updateList(form, list)
 	})
 	form.AddButton("建立新的", func() {
-		newForm(&FormData{}, form)
+		newForm(&FormData{}, form, list)
 	})
 
 }
